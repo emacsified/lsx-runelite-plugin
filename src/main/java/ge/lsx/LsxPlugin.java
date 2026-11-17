@@ -1,0 +1,375 @@
+package ge.lsx;
+
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.inject.Provides;
+import java.awt.BasicStroke;
+import java.awt.Color;
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
+import java.awt.image.BufferedImage;
+import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import javax.inject.Inject;
+import javax.swing.SwingUtilities;
+import lombok.extern.slf4j.Slf4j;
+import net.runelite.api.ChatMessageType;
+import net.runelite.api.Client;
+import net.runelite.api.GameState;
+import net.runelite.api.GrandExchangeOffer;
+import net.runelite.api.GrandExchangeOfferState;
+import net.runelite.api.Player;
+import net.runelite.api.WorldType;
+import net.runelite.api.events.GameStateChanged;
+import net.runelite.api.events.GameTick;
+import net.runelite.api.events.GrandExchangeOfferChanged;
+import net.runelite.client.callback.ClientThread;
+import net.runelite.client.chat.ChatMessageManager;
+import net.runelite.client.chat.QueuedMessage;
+import net.runelite.client.config.ConfigManager;
+import net.runelite.client.eventbus.Subscribe;
+import net.runelite.client.events.ConfigChanged;
+import net.runelite.client.game.ItemManager;
+import net.runelite.client.plugins.Plugin;
+import net.runelite.client.plugins.PluginDescriptor;
+import net.runelite.client.task.Schedule;
+import net.runelite.client.ui.ClientToolbar;
+import net.runelite.client.ui.NavigationButton;
+import net.runelite.client.ui.overlay.OverlayManager;
+
+@Slf4j
+@PluginDescriptor(
+	name = "Lumbridge Stock Exchange",
+	description = "LSX: margins on your items, flip suggestions, and optional auto-logging of GE trades to your LSX portfolio",
+	tags = {"lsx", "grand exchange", "ge", "flipping", "prices", "margins", "merching", "stock exchange"}
+)
+public class LsxPlugin extends Plugin
+{
+	static final String VERSION = "1.0.0";
+
+	// Raw ids rather than the deprecated Varbits/VarPlayer constants, to stay stable across API changes.
+	private static final int VARBIT_ACCOUNT_TYPE = 1777;
+	private static final String[] ACCOUNT_TYPES = {
+		"normal", "ironman", "ultimate_ironman", "hardcore_ironman",
+		"group_ironman", "hardcore_group_ironman", "unranked_group_ironman"
+	};
+
+	@Inject
+	private Client client;
+
+	@Inject
+	private ClientThread clientThread;
+
+	@Inject
+	private LsxConfig config;
+
+	@Inject
+	private ApiClient api;
+
+	@Inject
+	private OverlayManager overlayManager;
+
+	@Inject
+	private ItemValueOverlay itemOverlay;
+
+	@Inject
+	private GeHelperOverlay geHelperOverlay;
+
+	@Inject
+	private ClientToolbar clientToolbar;
+
+	@Inject
+	private ChatMessageManager chatMessageManager;
+
+	@Inject
+	private ItemManager itemManager;
+
+	private LsxPanel panel;
+	private NavigationButton navButton;
+
+	/** Latest prices from the tracker, swapped atomically. */
+	private volatile Map<Integer, PriceInfo> prices = Collections.emptyMap();
+
+	/** Offer snapshots waiting to be sent, keyed by slot. Client thread only. */
+	private final Map<Integer, Map<String, Object>> pendingOffers = new LinkedHashMap<>();
+	private boolean sessionPending;
+	private String accountName;
+
+	@Provides
+	LsxConfig provideConfig(ConfigManager configManager)
+	{
+		return configManager.getConfig(LsxConfig.class);
+	}
+
+	@Override
+	protected void startUp()
+	{
+		overlayManager.add(itemOverlay);
+		overlayManager.add(geHelperOverlay);
+		panel = injector.getInstance(LsxPanel.class);
+		navButton = NavigationButton.builder()
+			.tooltip("Lumbridge Stock Exchange")
+			.icon(icon())
+			.priority(7)
+			.panel(panel)
+			.build();
+		clientToolbar.addNavigation(navButton);
+		refreshPrices();
+		refreshPanel();
+		clientThread.invoke(() ->
+		{
+			if (client.getGameState() == GameState.LOGGED_IN)
+			{
+				sessionPending = true;
+				queueAllOffers();
+			}
+		});
+	}
+
+	@Override
+	protected void shutDown()
+	{
+		overlayManager.remove(itemOverlay);
+		overlayManager.remove(geHelperOverlay);
+		clientToolbar.removeNavigation(navButton);
+		pendingOffers.clear();
+		prices = Collections.emptyMap();
+		panel = null;
+	}
+
+	PriceInfo price(int itemId)
+	{
+		return prices.get(itemId);
+	}
+
+	// ------------------------------------------------------------------ game events
+
+	@Subscribe
+	public void onGameStateChanged(GameStateChanged e)
+	{
+		if (e.getGameState() == GameState.LOGGED_IN)
+		{
+			sessionPending = true;
+		}
+		else if (e.getGameState() == GameState.LOGIN_SCREEN)
+		{
+			pendingOffers.clear();
+			accountName = null;
+		}
+	}
+
+	@Subscribe
+	public void onGrandExchangeOfferChanged(GrandExchangeOfferChanged e)
+	{
+		if (!config.reportOffers())
+		{
+			return;
+		}
+		GrandExchangeOffer offer = e.getOffer();
+		// The client clears all slots to EMPTY while logging in / hopping; those aren't real changes.
+		if (client.getGameState() != GameState.LOGGED_IN && offer.getState() == GrandExchangeOfferState.EMPTY)
+		{
+			return;
+		}
+		pendingOffers.put(e.getSlot(), snapshot(e.getSlot(), offer));
+	}
+
+	@Subscribe
+	public void onGameTick(GameTick tick)
+	{
+		if (sessionPending)
+		{
+			Player me = client.getLocalPlayer();
+			if (me != null && me.getName() != null && client.getAccountHash() != -1)
+			{
+				sessionPending = false;
+				accountName = me.getName();
+				sendSession();
+			}
+		}
+		flushOffers();
+	}
+
+	@Subscribe
+	public void onConfigChanged(ConfigChanged e)
+	{
+		if (!LsxConfig.GROUP.equals(e.getGroup()))
+		{
+			return;
+		}
+		if ("apiToken".equals(e.getKey()))
+		{
+			api.resetPricesCache();
+			refreshPrices();
+			refreshPanel();
+			clientThread.invoke(() -> sessionPending = client.getGameState() == GameState.LOGGED_IN);
+		}
+		if ("reportOffers".equals(e.getKey()) && config.reportOffers())
+		{
+			// Just switched on: send the current state of every slot so in-progress offers are tracked.
+			clientThread.invoke(this::queueAllOffers);
+		}
+	}
+
+	// ------------------------------------------------------------------ offer reporting
+
+	private void queueAllOffers()
+	{
+		if (!config.reportOffers() || client.getGameState() != GameState.LOGGED_IN)
+		{
+			return;
+		}
+		GrandExchangeOffer[] offers = client.getGrandExchangeOffers();
+		if (offers == null)
+		{
+			return;
+		}
+		for (int slot = 0; slot < offers.length; slot++)
+		{
+			if (offers[slot] != null)
+			{
+				pendingOffers.put(slot, snapshot(slot, offers[slot]));
+			}
+		}
+	}
+
+	private static Map<String, Object> snapshot(int slot, GrandExchangeOffer o)
+	{
+		Map<String, Object> m = new HashMap<>();
+		m.put("slot", slot);
+		m.put("state", o.getState().name());
+		m.put("item_id", o.getItemId());
+		m.put("price", o.getPrice());
+		m.put("total_qty", o.getTotalQuantity());
+		m.put("filled_qty", o.getQuantitySold());
+		m.put("spent", o.getSpent());
+		return m;
+	}
+
+	/** Sends queued snapshots in one batch (called every tick, so login's burst of 8 events is one request). */
+	private void flushOffers()
+	{
+		if (pendingOffers.isEmpty())
+		{
+			return;
+		}
+		long hash = client.getAccountHash();
+		if (hash == -1 || client.getGameState() != GameState.LOGGED_IN)
+		{
+			return; // keep them until we know which account they belong to
+		}
+		if (!api.configured() || !api.hasToken())
+		{
+			pendingOffers.clear();
+			return;
+		}
+		List<Map<String, Object>> batch = new ArrayList<>(pendingOffers.values());
+		pendingOffers.clear();
+		Map<String, Object> body = new HashMap<>();
+		body.put("account_hash", Long.toString(hash));
+		body.put("account_name", accountName);
+		body.put("offers", batch);
+		api.post("/api/plugin/offers", body, this::onFills,
+			err -> log.debug("LSX: offer report failed: {}", err));
+	}
+
+	private void onFills(JsonObject resp)
+	{
+		if (!resp.has("fills") || resp.getAsJsonArray("fills").size() == 0)
+		{
+			return;
+		}
+		if (config.chatNotifications())
+		{
+			clientThread.invoke(() ->
+			{
+				for (JsonElement el : resp.getAsJsonArray("fills"))
+				{
+					JsonObject f = el.getAsJsonObject();
+					String name = itemManager.getItemComposition(f.get("item_id").getAsInt()).getName();
+					String verb = "buy".equals(f.get("side").getAsString()) ? "Bought" : "Sold";
+					chatMessageManager.queue(QueuedMessage.builder()
+						.type(ChatMessageType.CONSOLE)
+						.runeLiteFormattedMessage("<col=e0b341>LSX</col>: logged " + verb.toLowerCase() + " "
+							+ Format.full(f.get("qty").getAsLong()) + " x " + name + " @ "
+							+ Format.full(f.get("price").getAsLong()) + " gp")
+						.build());
+				}
+			});
+		}
+		refreshPanel();
+	}
+
+	private void sendSession()
+	{
+		if (!api.configured() || !api.hasToken())
+		{
+			return;
+		}
+		int type = client.getVarbitValue(VARBIT_ACCOUNT_TYPE);
+		Map<String, Object> body = new HashMap<>();
+		body.put("account_hash", Long.toString(client.getAccountHash()));
+		body.put("name", accountName);
+		body.put("account_type", type >= 0 && type < ACCOUNT_TYPES.length ? ACCOUNT_TYPES[type] : null);
+		body.put("is_member", client.getWorldType().contains(WorldType.MEMBERS));
+		body.put("plugin_version", VERSION);
+		api.post("/api/plugin/session", body, r -> refreshPanel(),
+			err -> log.debug("LSX: session report failed: {}", err));
+	}
+
+	// ------------------------------------------------------------------ background refresh
+
+	@Schedule(period = 60, unit = ChronoUnit.SECONDS, asynchronous = true)
+	public void refreshPrices()
+	{
+		if (!api.configured())
+		{
+			return;
+		}
+		api.fetchPrices(map ->
+		{
+			if (map != null)
+			{
+				prices = map;
+				log.debug("LSX: loaded {} prices", map.size());
+			}
+		}, err -> log.debug("LSX: price refresh failed: {}", err));
+	}
+
+	@Schedule(period = 60, unit = ChronoUnit.SECONDS, asynchronous = true)
+	public void refreshPanel()
+	{
+		LsxPanel p = panel;
+		if (p == null)
+		{
+			return;
+		}
+		if (!api.hasToken())
+		{
+			SwingUtilities.invokeLater(() -> p.showSignedOut(api.webUrl()));
+			return;
+		}
+		api.get("/api/plugin/summary",
+			summary -> SwingUtilities.invokeLater(() -> p.update(summary)),
+			err -> SwingUtilities.invokeLater(() -> p.showStatus(err, true)));
+	}
+
+	private static BufferedImage icon()
+	{
+		BufferedImage img = new BufferedImage(16, 16, BufferedImage.TYPE_INT_ARGB);
+		Graphics2D g = img.createGraphics();
+		g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+		g.setColor(new Color(0xE0B341));
+		g.fillRoundRect(0, 0, 16, 16, 5, 5);
+		g.setColor(new Color(0x1A1405));
+		g.setStroke(new BasicStroke(2f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+		g.drawPolyline(new int[]{3, 6, 9, 13}, new int[]{11, 8, 10, 4}, 4);
+		g.dispose();
+		return img;
+	}
+}

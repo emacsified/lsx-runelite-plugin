@@ -6,7 +6,10 @@ import com.google.inject.Provides;
 import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Graphics2D;
+import java.awt.RadialGradientPaint;
 import java.awt.RenderingHints;
+import java.awt.geom.Ellipse2D;
+import java.awt.geom.Point2D;
 import java.awt.image.BufferedImage;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -50,7 +53,7 @@ import net.runelite.client.ui.overlay.OverlayManager;
 )
 public class LsxPlugin extends Plugin
 {
-	static final String VERSION = "1.0.0";
+	static final String VERSION = "1.0.1";
 
 	// Raw ids rather than the deprecated Varbits/VarPlayer constants, to stay stable across API changes.
 	private static final int VARBIT_ACCOUNT_TYPE = 1777;
@@ -359,16 +362,23 @@ public class LsxPlugin extends Plugin
 			err -> SwingUtilities.invokeLater(() -> p.showStatus(err, true)));
 	}
 
-	private static BufferedImage icon()
+	/** The LSX gold coin (same as the lsx.ge logo), drawn at sidebar size. */
+	static BufferedImage icon()
 	{
 		BufferedImage img = new BufferedImage(16, 16, BufferedImage.TYPE_INT_ARGB);
 		Graphics2D g = img.createGraphics();
 		g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-		g.setColor(new Color(0xE0B341));
-		g.fillRoundRect(0, 0, 16, 16, 5, 5);
-		g.setColor(new Color(0x1A1405));
-		g.setStroke(new BasicStroke(2f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-		g.drawPolyline(new int[]{3, 6, 9, 13}, new int[]{11, 8, 10, 4}, 4);
+		g.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
+		g.setPaint(new RadialGradientPaint(new Point2D.Float(5.6f, 4.8f), 10f,
+			new float[]{0f, 0.35f, 0.75f, 1f},
+			new Color[]{new Color(0xFFF3C4), new Color(0xF1C95A), new Color(0xC8952A), new Color(0x9C6F17)}));
+		g.fill(new Ellipse2D.Float(0.5f, 0.5f, 15f, 15f));
+		g.setStroke(new BasicStroke(1.2f));
+		g.setColor(new Color(120, 80, 10, 170));
+		g.draw(new Ellipse2D.Float(1.1f, 1.1f, 13.8f, 13.8f));
+		g.setStroke(new BasicStroke(0.8f));
+		g.setColor(new Color(120, 80, 10, 110));
+		g.draw(new Ellipse2D.Float(3.4f, 3.4f, 9.2f, 9.2f));
 		g.dispose();
 		return img;
 	}

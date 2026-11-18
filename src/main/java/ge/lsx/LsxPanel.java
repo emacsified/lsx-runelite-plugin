@@ -115,7 +115,9 @@ class LsxPanel extends PluginPanel
 	{
 		JsonObject user = s.getAsJsonObject("user");
 		String who = user != null && user.has("display_name") ? user.get("display_name").getAsString() : "?";
-		showStatus("Connected as " + who, false);
+		JsonObject ent = s.has("entitlements") && s.get("entitlements").isJsonObject() ? s.getAsJsonObject("entitlements") : null;
+		boolean members = ent != null && ent.has("members_items") && ent.get("members_items").getAsBoolean();
+		showStatus("Connected as " + who + (members ? "" : " · F2P access (members items hidden)"), false);
 		webUrl = s.has("web_url") && !s.get("web_url").isJsonNull() ? s.get("web_url").getAsString() : defaultWebUrl;
 		openWeb.setEnabled(true);
 

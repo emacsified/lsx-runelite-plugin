@@ -7,10 +7,13 @@ portfolio, GE slots and alerts in the sidebar.
 
 - **Item overlay:** flip profit after GE tax, margin, ROI or price on items in your inventory, and optionally your bank.
 - **GE offer helper:** while you set up an offer, shows:
-  - instant-buy and instant-sell prices, margin, profit after tax and ROI
-  - buy limit and profit per limit
-  - margin consistency (how often the margin has actually been profitable recently)
-  - 24h volume
+  - instant-buy and instant-sell prices, margin, profit after tax and fees, and ROI
+  - the typical profit over the last 24 hours, when it differs from right now
+  - buy limit, a realistic 4-hour potential and fill speed (how quickly a full buy limit trades)
+  - margin consistency (how often the margin has actually been profitable recently) and 24h volume
+  - a warning on 1–4gp spreads, where offers queue at the same price and fill slowly
+  - with an API token: how many you hold, your average cost and your **break-even list price** after tax and fees
+- **Offer warnings:** a chat message when one of your active offers falls behind the market (a buy below what sellers are taking, or a sell above what buyers are paying). The threshold is adjustable, and it works with or without trade logging.
 - **Sidebar:** your live GE slots, recently logged trades, today's most reliable flips and your latest LSX alerts. Click any row to open the item on lsx.ge.
 - **Trade logging** (opt-in): every GE fill is logged to your lsx.ge portfolio automatically, with profit after tax tracked for you.
 
@@ -18,7 +21,9 @@ All prices and calculations come from lsx.ge. The plugin only displays them.
 
 ## Setup
 
-Prices and overlays work as soon as the plugin is installed.
+Prices and overlays work as soon as the plugin is installed. On a private LSX server they need an API token.
+
+LSX accounts with free-to-play access see free-to-play items only, in the plugin as on the website.
 
 To use your portfolio, slots and alerts:
 
@@ -34,7 +39,7 @@ This plugin talks only to `https://lsx.ge`.
 | When | What is sent |
 |---|---|
 | Always (prices) | A request for the public price list, once a minute. Your IP address is visible to lsx.ge, as with any website. |
-| With an API token | Requests for your sidebar data, authenticated with your token. |
+| With an API token | Requests for your sidebar data (slots, trades, alerts, and what you hold for break-even prices), authenticated with your token. |
 | With **Report GE trades** on | For each GE slot: item, offer price, quantity, quantity filled and gp spent. Also your account hash (RuneLite's anonymous per-account ID), in-game name, account type and whether you're on a members world. |
 
 Nothing else is collected. Trade reporting is off until you switch it on, and needs a token you

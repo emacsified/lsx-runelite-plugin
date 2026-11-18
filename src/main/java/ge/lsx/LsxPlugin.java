@@ -53,7 +53,7 @@ import net.runelite.client.ui.overlay.OverlayManager;
 )
 public class LsxPlugin extends Plugin
 {
-	static final String VERSION = "1.0.1";
+	static final String VERSION = "1.1.0";
 
 	// Raw ids rather than the deprecated Varbits/VarPlayer constants, to stay stable across API changes.
 	private static final int VARBIT_ACCOUNT_TYPE = 1777;
@@ -97,6 +97,12 @@ public class LsxPlugin extends Plugin
 
 	/** Latest prices from the tracker, swapped atomically. */
 	private volatile Map<Integer, PriceInfo> prices = Collections.emptyMap();
+	/** What your LSX portfolio says you hold (with break-even list prices), from the panel summary. */
+	private volatile Map<Integer, Holding> holdings = Collections.emptyMap();
+	private volatile boolean membersAccess;
+	private volatile boolean summaryLoaded;
+	/** Slot -> the offer we last warned about, so each falling-behind offer is mentioned once. Client thread only. */
+	private final Map<Integer, String> warnedOffers = new HashMap<>();
 
 	/** Offer snapshots waiting to be sent, keyed by slot. Client thread only. */
 	private final Map<Integer, Map<String, Object>> pendingOffers = new LinkedHashMap<>();
@@ -141,13 +147,31 @@ public class LsxPlugin extends Plugin
 		overlayManager.remove(geHelperOverlay);
 		clientToolbar.removeNavigation(navButton);
 		pendingOffers.clear();
+		warnedOffers.clear();
 		prices = Collections.emptyMap();
+		holdings = Collections.emptyMap();
+		summaryLoaded = false;
 		panel = null;
 	}
 
 	PriceInfo price(int itemId)
 	{
 		return prices.get(itemId);
+	}
+
+	Holding holding(int itemId)
+	{
+		return holdings.get(itemId);
+	}
+
+	boolean membersAccess()
+	{
+		return membersAccess;
+	}
+
+	boolean hasSummary()
+	{
+		return summaryLoaded;
 	}
 
 	// ------------------------------------------------------------------ game events
@@ -162,6 +186,7 @@ public class LsxPlugin extends Plugin
 		else if (e.getGameState() == GameState.LOGIN_SCREEN)
 		{
 			pendingOffers.clear();
+			warnedOffers.clear();
 			accountName = null;
 		}
 	}
@@ -169,11 +194,15 @@ public class LsxPlugin extends Plugin
 	@Subscribe
 	public void onGrandExchangeOfferChanged(GrandExchangeOfferChanged e)
 	{
+		GrandExchangeOffer offer = e.getOffer();
+		if (offer.getState() == GrandExchangeOfferState.EMPTY)
+		{
+			warnedOffers.remove(e.getSlot());
+		}
 		if (!config.reportOffers())
 		{
 			return;
 		}
-		GrandExchangeOffer offer = e.getOffer();
 		// The client clears all slots to EMPTY while logging in / hopping; those aren't real changes.
 		if (client.getGameState() != GameState.LOGGED_IN && offer.getState() == GrandExchangeOfferState.EMPTY)
 		{
@@ -341,6 +370,7 @@ public class LsxPlugin extends Plugin
 				prices = map;
 				log.debug("LSX: loaded {} prices", map.size());
 			}
+			clientThread.invoke(this::checkOffers);
 		}, err -> log.debug("LSX: price refresh failed: {}", err));
 	}
 
@@ -354,12 +384,90 @@ public class LsxPlugin extends Plugin
 		}
 		if (!api.hasToken())
 		{
+			holdings = Collections.emptyMap();
+			summaryLoaded = false;
 			SwingUtilities.invokeLater(() -> p.showSignedOut(api.webUrl()));
 			return;
 		}
 		api.get("/api/plugin/summary",
-			summary -> SwingUtilities.invokeLater(() -> p.update(summary)),
+			summary ->
+			{
+				holdings = ApiClient.parseHoldings(summary);
+				membersAccess = ApiClient.membersAccess(summary);
+				summaryLoaded = true;
+				SwingUtilities.invokeLater(() -> p.update(summary));
+			},
 			err -> SwingUtilities.invokeLater(() -> p.showStatus(err, true)));
+	}
+
+	// ------------------------------------------------------------------ offer warnings
+
+	/** Chat warning for active offers priced too far from the market to fill. Client thread. */
+	void checkOffers()
+	{
+		if (!config.offerWarnings() || client.getGameState() != GameState.LOGGED_IN)
+		{
+			return;
+		}
+		GrandExchangeOffer[] offers = client.getGrandExchangeOffers();
+		if (offers == null)
+		{
+			return;
+		}
+		for (int slot = 0; slot < offers.length; slot++)
+		{
+			GrandExchangeOffer o = offers[slot];
+			if (o == null)
+			{
+				continue;
+			}
+			boolean buying = o.getState() == GrandExchangeOfferState.BUYING;
+			if (!buying && o.getState() != GrandExchangeOfferState.SELLING)
+			{
+				warnedOffers.remove(slot);
+				continue;
+			}
+			Double behind = behindPercent(buying, o.getPrice(), prices.get(o.getItemId()));
+			if (behind == null || behind < config.offerWarnPercent())
+			{
+				warnedOffers.remove(slot); // back in line with the market; warn again if it slips later
+				continue;
+			}
+			String key = o.getItemId() + ":" + o.getPrice() + ":" + buying;
+			if (key.equals(warnedOffers.get(slot)))
+			{
+				continue;
+			}
+			warnedOffers.put(slot, key);
+			PriceInfo p = prices.get(o.getItemId());
+			String name = itemManager.getItemComposition(o.getItemId()).getName();
+			String text = buying
+				? "your buy offer for " + name + " at " + Format.full((long) o.getPrice()) + " is "
+					+ String.format("%.1f", behind) + "% under the market (sellers are taking " + Format.full(p.low) + "), so it may not fill"
+				: "your sell offer for " + name + " at " + Format.full((long) o.getPrice()) + " is "
+					+ String.format("%.1f", behind) + "% over the market (buyers are paying " + Format.full(p.high) + "), so it may not fill";
+			chatMessageManager.queue(QueuedMessage.builder()
+				.type(ChatMessageType.CONSOLE)
+				.runeLiteFormattedMessage("<col=e0b341>LSX</col>: " + text)
+				.build());
+		}
+	}
+
+	/**
+	 * How far (in %) an offer sits on the wrong side of the market: a buy below the instant-sell price,
+	 * or a sell above the instant-buy price. Null when unknown or not behind.
+	 */
+	static Double behindPercent(boolean buying, long offerPrice, PriceInfo p)
+	{
+		if (p == null || offerPrice <= 0)
+		{
+			return null;
+		}
+		if (buying)
+		{
+			return p.low != null && p.low > offerPrice ? (p.low - offerPrice) * 100.0 / offerPrice : null;
+		}
+		return p.high != null && p.high > 0 && offerPrice > p.high ? (offerPrice - p.high) * 100.0 / p.high : null;
 	}
 
 	/** The LSX gold coin (same as the lsx.ge logo), drawn at sidebar size. */

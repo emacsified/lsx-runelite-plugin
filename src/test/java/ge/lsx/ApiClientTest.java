@@ -1,7 +1,9 @@
 package ge.lsx;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
@@ -22,6 +24,57 @@ public class ApiClientTest
 		assertEquals(Long.valueOf(3113), whip.margin());
 		assertEquals(Integer.valueOf(70), whip.limit);
 		assertNull(m.get(2).limit);
+	}
+
+	@Test
+	public void parsesV2FieldsAndFlagsCrowdedSpreads()
+	{
+		String json = "{\"items\":[[13190,10900000,10800000,-1090000,-1000,100,40,900,null,false,\"quick\",0,-1000000,1085000,true],"
+			+ "[30000,14,13,1,769,300000,100,9000000,null,true,\"instant\",46656,1,0,false]]}";
+		Map<Integer, PriceInfo> m = ApiClient.parsePrices(new Gson().fromJson(json, JsonObject.class));
+		PriceInfo bond = m.get(13190);
+		assertEquals("quick", bond.fillGrade);
+		assertEquals(Long.valueOf(1085000), bond.resaleFee);
+		assertTrue(bond.taxExempt);
+		assertFalse(bond.crowded());
+		PriceInfo essence = m.get(30000);
+		assertTrue(essence.crowded());
+		assertEquals(Long.valueOf(46656), essence.potential4h);
+		assertEquals(Boolean.TRUE, essence.members);
+	}
+
+	@Test
+	public void oldServerRowsStillParse()
+	{
+		PriceInfo p = ApiClient.parsePrices(new Gson().fromJson("{\"items\":[[2,240,233,2,85,null,null,1000]]}", JsonObject.class)).get(2);
+		assertNull(p.fillGrade);
+		assertNull(p.potential4h);
+		assertFalse(p.taxExempt);
+	}
+
+	@Test
+	public void parsesHoldingsAndTier()
+	{
+		JsonObject s = new Gson().fromJson("{\"entitlements\":{\"members_items\":false},\"holdings\":["
+			+ "{\"item_id\":4151,\"open_qty\":20,\"avg_cost\":661536,\"break_even\":675036},"
+			+ "{\"item_id\":2,\"open_qty\":5,\"avg_cost\":40,\"break_even\":null}]}", JsonObject.class);
+		Map<Integer, Holding> h = ApiClient.parseHoldings(s);
+		assertEquals(Long.valueOf(675036), h.get(4151).breakEven);
+		assertEquals(20, h.get(4151).quantity);
+		assertNull(h.get(2).breakEven);
+		assertFalse(ApiClient.membersAccess(s));
+		assertTrue(ApiClient.parseHoldings(new JsonObject()).isEmpty());
+	}
+
+	@Test
+	public void offerBehindTheMarket()
+	{
+		PriceInfo p = new PriceInfo(1, 1100L, 1000L, 78L, 780, 100, 90, 5000L, false, "quick", 0L, 78L, 0L, false);
+		assertEquals(5.0, LsxPlugin.behindPercent(true, 952, p) , 0.1);   // buying at 952 while sellers take 1,000
+		assertNull(LsxPlugin.behindPercent(true, 1000, p));                // at the market: fine
+		assertEquals(10.0, LsxPlugin.behindPercent(false, 1210, p), 0.01); // selling at 1,210 while buyers pay 1,100
+		assertNull(LsxPlugin.behindPercent(false, 1100, p));
+		assertNull(LsxPlugin.behindPercent(true, 952, null));
 	}
 
 	private static final LsxConfig CONFIG = new LsxConfig()

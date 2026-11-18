@@ -4,6 +4,8 @@ import net.runelite.client.config.Config;
 import net.runelite.client.config.ConfigGroup;
 import net.runelite.client.config.ConfigItem;
 import net.runelite.client.config.ConfigSection;
+import net.runelite.client.config.Range;
+import net.runelite.client.config.Units;
 
 @ConfigGroup(LsxConfig.GROUP)
 public interface LsxConfig extends Config
@@ -100,12 +102,38 @@ public interface LsxConfig extends Config
 	@ConfigItem(
 		keyName = "geHelper",
 		name = "GE offer helper",
-		description = "While setting up a GE offer, show current prices, profit after tax, buy limit and margin consistency",
+		description = "While setting up a GE offer, show current prices, profit after tax and fees, fill speed, 4h potential and, for items you hold, your break-even list price",
 		section = overlays,
 		position = 3
 	)
 	default boolean geHelper()
 	{
 		return true;
+	}
+
+	@ConfigItem(
+		keyName = "offerWarnings",
+		name = "Warn when an offer falls behind",
+		description = "Chat message when one of your active GE offers is priced too far from the market to fill: a buy below what sellers are taking, or a sell above what buyers are paying",
+		section = overlays,
+		position = 4
+	)
+	default boolean offerWarnings()
+	{
+		return true;
+	}
+
+	@Range(min = 1, max = 50)
+	@Units(Units.PERCENT)
+	@ConfigItem(
+		keyName = "offerWarnPercent",
+		name = "Behind by at least",
+		description = "How far from the market an offer must be before you're warned",
+		section = overlays,
+		position = 5
+	)
+	default int offerWarnPercent()
+	{
+		return 2;
 	}
 }

@@ -266,10 +266,13 @@ public class ApiClient
 		for (JsonElement el : items)
 		{
 			JsonArray r = el.getAsJsonArray();
-			// [id, high, low, profit, roi_bp, limit, consistency, vol_24h, highalch, members]
+			// [id, high, low, profit, roi_bp, limit, consistency, vol_24h, highalch, members,
+			//  fill_grade, potential_4h, typical_profit, resale_fee, tax_exempt]; later fields may be absent
 			int id = r.get(0).getAsInt();
+			Boolean exempt = asBool(r, 14);
 			out.put(id, new PriceInfo(id, asLong(r, 1), asLong(r, 2), asLong(r, 3), asInt(r, 4),
-				asInt(r, 5), asInt(r, 6), asLong(r, 7)));
+				asInt(r, 5), asInt(r, 6), asLong(r, 7), asBool(r, 9), asString(r, 10), asLong(r, 11),
+				asLong(r, 12), asLong(r, 13), exempt != null && exempt));
 		}
 		return out;
 	}
@@ -277,6 +280,42 @@ public class ApiClient
 	private static Long asLong(JsonArray a, int i)
 	{
 		return i < a.size() && !a.get(i).isJsonNull() ? a.get(i).getAsLong() : null;
+	}
+
+	private static Boolean asBool(JsonArray a, int i)
+	{
+		return i < a.size() && !a.get(i).isJsonNull() ? a.get(i).getAsBoolean() : null;
+	}
+
+	private static String asString(JsonArray a, int i)
+	{
+		return i < a.size() && !a.get(i).isJsonNull() ? a.get(i).getAsString() : null;
+	}
+
+	/** Holdings from the /api/plugin/summary response, keyed by item id. */
+	static Map<Integer, Holding> parseHoldings(JsonObject summary)
+	{
+		JsonArray arr = summary.has("holdings") && summary.get("holdings").isJsonArray() ? summary.getAsJsonArray("holdings") : null;
+		if (arr == null)
+		{
+			return Collections.emptyMap();
+		}
+		Map<Integer, Holding> out = new HashMap<>();
+		for (JsonElement el : arr)
+		{
+			JsonObject h = el.getAsJsonObject();
+			int id = h.get("item_id").getAsInt();
+			Long be = h.has("break_even") && !h.get("break_even").isJsonNull() ? h.get("break_even").getAsLong() : null;
+			out.put(id, new Holding(id, h.get("open_qty").getAsLong(), h.get("avg_cost").getAsLong(), be));
+		}
+		return out;
+	}
+
+	/** Whether the account may see members items (from the summary's entitlements). */
+	static boolean membersAccess(JsonObject summary)
+	{
+		JsonObject e = summary.has("entitlements") && summary.get("entitlements").isJsonObject() ? summary.getAsJsonObject("entitlements") : null;
+		return e != null && e.has("members_items") && e.get("members_items").getAsBoolean();
 	}
 
 	private static Integer asInt(JsonArray a, int i)

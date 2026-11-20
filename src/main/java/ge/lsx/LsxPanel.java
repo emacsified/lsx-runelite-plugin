@@ -8,6 +8,7 @@ import java.awt.Color;
 import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.GridLayout;
+import java.awt.Rectangle;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import javax.inject.Inject;
@@ -17,6 +18,9 @@ import javax.swing.BoxLayout;
 import javax.swing.JButton;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
+import javax.swing.JScrollPane;
+import javax.swing.ScrollPaneConstants;
+import javax.swing.Scrollable;
 import javax.swing.SwingConstants;
 import javax.swing.border.EmptyBorder;
 import net.runelite.client.ui.ColorScheme;
@@ -81,11 +85,59 @@ class LsxPanel extends PluginPanel
 
 		content.setLayout(new BoxLayout(content, BoxLayout.Y_AXIS));
 		content.setOpaque(false);
-		JPanel wrap = new JPanel(new BorderLayout());
-		wrap.setOpaque(false);
+		JPanel wrap = new ScrollableColumn();
 		wrap.add(content, BorderLayout.NORTH);
-		add(wrap, BorderLayout.CENTER);
+		// The header stays put and everything below it scrolls. Without this the panel asks for its full
+		// content height and RuneLite grows the client window to fit it.
+		JScrollPane scroll = new JScrollPane(wrap, ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED,
+			ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+		scroll.setBorder(new EmptyBorder(6, 0, 0, 0));
+		scroll.setOpaque(false);
+		scroll.getViewport().setOpaque(false);
+		scroll.getVerticalScrollBar().setUnitIncrement(16);
+		scroll.setPreferredSize(new Dimension(0, 0)); // take whatever height is left, never more
+		add(scroll, BorderLayout.CENTER);
 		showStatus("Loading…", false);
+	}
+
+	/** Scroll view that always fits the sidebar's width, so rows wrap instead of scrolling sideways. */
+	private static final class ScrollableColumn extends JPanel implements Scrollable
+	{
+		ScrollableColumn()
+		{
+			super(new BorderLayout());
+			setOpaque(false);
+		}
+
+		@Override
+		public Dimension getPreferredScrollableViewportSize()
+		{
+			return getPreferredSize();
+		}
+
+		@Override
+		public int getScrollableUnitIncrement(Rectangle visible, int orientation, int direction)
+		{
+			return 16;
+		}
+
+		@Override
+		public int getScrollableBlockIncrement(Rectangle visible, int orientation, int direction)
+		{
+			return Math.max(16, visible.height - 32);
+		}
+
+		@Override
+		public boolean getScrollableTracksViewportWidth()
+		{
+			return true;
+		}
+
+		@Override
+		public boolean getScrollableTracksViewportHeight()
+		{
+			return false;
+		}
 	}
 
 	void showStatus(String text, boolean error)

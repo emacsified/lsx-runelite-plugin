@@ -39,12 +39,13 @@ This plugin talks only to `https://lsx.ge`.
 
 | When | What is sent |
 |---|---|
-| Always (prices) | A request for the public price list, once a minute. Your IP address is visible to lsx.ge, as with any website. |
-| With an API token | Requests for your sidebar data (slots, trades, alerts, what you hold for break-even prices, and buy limits used), authenticated with your token. |
-| With **Report GE trades** on | For each GE slot: item, offer price, quantity, quantity filled and gp spent. Also your account hash (RuneLite's anonymous per-account ID), in-game name, account type and whether you're on a members world. |
+| Without a token | Only a request for the public price list, once a minute. Nothing about you or your account. Your IP address is visible to lsx.ge, as with any website. |
+| With an API token | When you log in: your account hash (RuneLite's anonymous per-account ID), in-game name, account type, whether you're on a members world, and the plugin version. Then requests for your sidebar data (slots, trades, alerts, what you hold for break-even prices, and buy limits used), authenticated with your token. |
+| With a token and **Report GE trades** on | For each GE slot as it changes: item, buy or sell, offer price, quantity, quantity filled and gp spent. |
 
-Nothing else is collected. Trade reporting is off until you switch it on, and needs a token you
-created yourself. Revoke the token on lsx.ge at any time to cut the plugin off.
+Nothing else is collected, and nothing about you is sent until you paste in a token you created
+yourself. Trade reporting is off until you switch it on. Revoke the token on lsx.ge at any time to cut
+the plugin off. The full privacy policy is at https://lsx.ge/privacy.
 
 ## Development
 

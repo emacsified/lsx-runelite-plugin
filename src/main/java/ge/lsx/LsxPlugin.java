@@ -209,7 +209,7 @@ public class LsxPlugin extends Plugin
 		{
 			warnedOffers.remove(e.getSlot());
 		}
-		if (!config.reportOffers())
+		if (!reporting())
 		{
 			return;
 		}
@@ -260,9 +260,15 @@ public class LsxPlugin extends Plugin
 
 	// ------------------------------------------------------------------ offer reporting
 
+	/** Offers are only ever looked at for reporting when the user switched it on and gave us their own token. */
+	private boolean reporting()
+	{
+		return config.reportOffers() && api.hasToken();
+	}
+
 	private void queueAllOffers()
 	{
-		if (!config.reportOffers() || client.getGameState() != GameState.LOGGED_IN)
+		if (!reporting() || client.getGameState() != GameState.LOGGED_IN)
 		{
 			return;
 		}

@@ -184,6 +184,11 @@ public class LsxPlugin extends Plugin
 		return summaryLoaded;
 	}
 
+	boolean signedIn()
+	{
+		return api.hasToken();
+	}
+
 	// ------------------------------------------------------------------ game events
 
 	@Subscribe

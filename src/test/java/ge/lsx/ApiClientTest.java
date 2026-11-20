@@ -27,6 +27,22 @@ public class ApiClientTest
 	}
 
 	@Test
+	public void parsesPriceOnlyRowsWithoutAToken()
+	{
+		// Without a token LSX sends prices, limits and volume; the analysis fields are null.
+		String json = "{\"items\":[[4151,630000,626887,null,null,70,null,5522,72000,true,null,null,null,0,false]]}";
+		PriceInfo whip = ApiClient.parsePrices(new Gson().fromJson(json, JsonObject.class)).get(4151);
+		assertEquals(Long.valueOf(630000), whip.high);
+		assertEquals(Long.valueOf(626887), whip.low);
+		assertEquals(Integer.valueOf(70), whip.limit);
+		assertNull(whip.profit);
+		assertNull(whip.roiBp);
+		assertNull(whip.consistency);
+		assertNull(whip.fillGrade);
+		assertNull(whip.potential4h);
+	}
+
+	@Test
 	public void parsesV2FieldsAndFlagsCrowdedSpreads()
 	{
 		String json = "{\"items\":[[13190,10900000,10800000,-1090000,-1000,100,40,900,null,false,\"quick\",0,-1000000,1085000,true],"

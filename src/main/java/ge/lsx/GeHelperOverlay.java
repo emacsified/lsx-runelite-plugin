@@ -82,7 +82,16 @@ class GeHelperOverlay extends OverlayPanel
 		{
 			line("Typical (24h)", Format.full(p.typicalProfit), p.typicalProfit > 0 ? Color.WHITE : DOWN);
 		}
-		line("ROI", Format.pct(p.roiBp), p.roiBp != null && p.roiBp > 0 ? UP : Color.WHITE);
+		if (p.roiBp != null)
+		{
+			line("ROI", Format.pct(p.roiBp), p.roiBp > 0 ? UP : Color.WHITE);
+		}
+		if (p.profit == null && !plugin.signedIn())
+		{
+			// Public prices only: profit, ROI and flip stats come with an LSX account.
+			panelComponent.getChildren().add(LineComponent.builder()
+				.left("Add an LSX API token for profit and flip stats").leftColor(Color.GRAY).build());
+		}
 		LimitUse used = plugin.limitUse(itemId);
 		if (used != null)
 		{

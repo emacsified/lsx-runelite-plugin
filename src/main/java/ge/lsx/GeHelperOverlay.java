@@ -83,7 +83,17 @@ class GeHelperOverlay extends OverlayPanel
 			line("Typical (24h)", Format.full(p.typicalProfit), p.typicalProfit > 0 ? Color.WHITE : DOWN);
 		}
 		line("ROI", Format.pct(p.roiBp), p.roiBp != null && p.roiBp > 0 ? UP : Color.WHITE);
-		if (p.limit != null)
+		LimitUse used = plugin.limitUse(itemId);
+		if (used != null)
+		{
+			Long left = used.left(p.limit);
+			long mins = Math.max(0, (used.resetsAt - System.currentTimeMillis() / 1000) / 60);
+			String reset = mins >= 60 ? (mins / 60) + "h " + (mins % 60) + "m" : mins + "m";
+			line("Buy limit left", left != null ? Format.full(left) + " / " + Format.full(p.limit.longValue()) : Format.full(used.used) + " bought",
+				left != null && left == 0 ? DOWN : Color.WHITE);
+			line("Limit resets in", reset, Color.WHITE);
+		}
+		else if (p.limit != null)
 		{
 			line("Buy limit / 4h", Format.full(p.limit.longValue()), Color.WHITE);
 		}

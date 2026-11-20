@@ -53,7 +53,7 @@ import net.runelite.client.ui.overlay.OverlayManager;
 )
 public class LsxPlugin extends Plugin
 {
-	static final String VERSION = "1.1.0";
+	static final String VERSION = "1.2.0";
 
 	// Raw ids rather than the deprecated Varbits/VarPlayer constants, to stay stable across API changes.
 	private static final int VARBIT_ACCOUNT_TYPE = 1777;
@@ -99,6 +99,8 @@ public class LsxPlugin extends Plugin
 	private volatile Map<Integer, PriceInfo> prices = Collections.emptyMap();
 	/** What your LSX portfolio says you hold (with break-even list prices), from the panel summary. */
 	private volatile Map<Integer, Holding> holdings = Collections.emptyMap();
+	/** Buy limits you've used in the current 4-hour windows, from the panel summary. */
+	private volatile Map<Integer, LimitUse> limits = Collections.emptyMap();
 	private volatile boolean membersAccess;
 	private volatile boolean summaryLoaded;
 	/** Slot -> the offer we last warned about, so each falling-behind offer is mentioned once. Client thread only. */
@@ -150,6 +152,7 @@ public class LsxPlugin extends Plugin
 		warnedOffers.clear();
 		prices = Collections.emptyMap();
 		holdings = Collections.emptyMap();
+		limits = Collections.emptyMap();
 		summaryLoaded = false;
 		panel = null;
 	}
@@ -162,6 +165,13 @@ public class LsxPlugin extends Plugin
 	Holding holding(int itemId)
 	{
 		return holdings.get(itemId);
+	}
+
+	/** Your use of this item's buy limit, or null if no window is open (or it has already reset). */
+	LimitUse limitUse(int itemId)
+	{
+		LimitUse l = limits.get(itemId);
+		return l != null && l.resetsAt > System.currentTimeMillis() / 1000 ? l : null;
 	}
 
 	boolean membersAccess()
@@ -385,6 +395,7 @@ public class LsxPlugin extends Plugin
 		if (!api.hasToken())
 		{
 			holdings = Collections.emptyMap();
+			limits = Collections.emptyMap();
 			summaryLoaded = false;
 			SwingUtilities.invokeLater(() -> p.showSignedOut(api.webUrl()));
 			return;
@@ -393,6 +404,7 @@ public class LsxPlugin extends Plugin
 			summary ->
 			{
 				holdings = ApiClient.parseHoldings(summary);
+				limits = ApiClient.parseLimits(summary);
 				membersAccess = ApiClient.membersAccess(summary);
 				summaryLoaded = true;
 				SwingUtilities.invokeLater(() -> p.update(summary));

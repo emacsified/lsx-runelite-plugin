@@ -67,6 +67,19 @@ public class ApiClientTest
 	}
 
 	@Test
+	public void parsesLimitUse()
+	{
+		JsonObject s = new Gson().fromJson("{\"limits\":[{\"item_id\":4151,\"used\":45,\"resets_at\":1795189013}]}", JsonObject.class);
+		Map<Integer, LimitUse> l = ApiClient.parseLimits(s);
+		assertEquals(45, l.get(4151).used);
+		assertEquals(1795189013L, l.get(4151).resetsAt);
+		assertEquals(Long.valueOf(25), l.get(4151).left(70));
+		assertEquals(Long.valueOf(0), new LimitUse(1, 90, 0).left(70));
+		assertNull(l.get(4151).left(null));
+		assertTrue(ApiClient.parseLimits(new JsonObject()).isEmpty());
+	}
+
+	@Test
 	public void offerBehindTheMarket()
 	{
 		PriceInfo p = new PriceInfo(1, 1100L, 1000L, 78L, 780, 100, 90, 5000L, false, "quick", 0L, 78L, 0L, false);

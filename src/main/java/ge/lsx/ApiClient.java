@@ -311,6 +311,24 @@ public class ApiClient
 		return out;
 	}
 
+	/** Buy limits used in open 4-hour windows, from the /api/plugin/summary response, keyed by item id. */
+	static Map<Integer, LimitUse> parseLimits(JsonObject summary)
+	{
+		JsonArray arr = summary.has("limits") && summary.get("limits").isJsonArray() ? summary.getAsJsonArray("limits") : null;
+		if (arr == null)
+		{
+			return Collections.emptyMap();
+		}
+		Map<Integer, LimitUse> out = new HashMap<>();
+		for (JsonElement el : arr)
+		{
+			JsonObject l = el.getAsJsonObject();
+			int id = l.get("item_id").getAsInt();
+			out.put(id, new LimitUse(id, l.get("used").getAsLong(), l.get("resets_at").getAsLong()));
+		}
+		return out;
+	}
+
 	/** Whether the account may see members items (from the summary's entitlements). */
 	static boolean membersAccess(JsonObject summary)
 	{

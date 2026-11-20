@@ -13,6 +13,7 @@ portfolio, GE slots and alerts in the sidebar.
   - margin consistency (how often the margin has actually been profitable recently) and 24h volume
   - a warning on 1–4gp spreads, where offers queue at the same price and fill slowly
   - with an API token: how many you hold, your average cost and your **break-even list price** after tax and fees
+  - with an API token: how much of the **buy limit** you have left in the current 4-hour window, and when it resets (from the buys LSX has logged)
 - **Offer warnings:** a chat message when one of your active offers falls behind the market (a buy below what sellers are taking, or a sell above what buyers are paying). The threshold is adjustable, and it works with or without trade logging.
 - **Sidebar:** your live GE slots, recently logged trades, today's most reliable flips and your latest LSX alerts. Click any row to open the item on lsx.ge.
 - **Trade logging** (opt-in): every GE fill is logged to your lsx.ge portfolio automatically, with profit after tax tracked for you.
@@ -39,7 +40,7 @@ This plugin talks only to `https://lsx.ge`.
 | When | What is sent |
 |---|---|
 | Always (prices) | A request for the public price list, once a minute. Your IP address is visible to lsx.ge, as with any website. |
-| With an API token | Requests for your sidebar data (slots, trades, alerts, and what you hold for break-even prices), authenticated with your token. |
+| With an API token | Requests for your sidebar data (slots, trades, alerts, what you hold for break-even prices, and buy limits used), authenticated with your token. |
 | With **Report GE trades** on | For each GE slot: item, offer price, quantity, quantity filled and gp spent. Also your account hash (RuneLite's anonymous per-account ID), in-game name, account type and whether you're on a members world. |
 
 Nothing else is collected. Trade reporting is off until you switch it on, and needs a token you
